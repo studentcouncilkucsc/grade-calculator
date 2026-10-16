@@ -615,7 +615,7 @@
     display: flex; align-items: center; justify-content: center;
     font-size: 10px; font-weight: 700;
   }
-  .pro-dot.filled { background: #FF6D00; border-color: #FF6D00; color: white; }
+  .pro-dot.filled { background: #C62828; border-color: #C62828; color: white; }
   .pro-dot.empty { background: var(--bg); color: var(--gray-mid); }
 
   /* SVG ICON HELPERS */
@@ -1074,6 +1074,7 @@ function updateCheckerAll() {
     }
   }
 
+  window._gpaxEntries = filled.map(r => ({ gpa: r.gpa, credits: r.credits }));
   renderMainStatusCard(finalGPAX, retired, semResults);
   renderHistoryTable(semResults, isWeighted);
 }
@@ -1114,23 +1115,26 @@ function renderMainStatusCard(finalGPAX, retired, semResults) {
     gpaEl.className = 'status-gpa gpa-retire';
     badgeEl.innerHTML = '<span class="status-dot dot-retire"></span>สิ้นสุดสถานภาพนิสิต (รีไทร์)';
     badgeEl.className = 'status-badge badge-retire';
-    warnEl.innerHTML = `<div class="warn-box" style="margin-top:10px;">${warnSvg('red')}GPAX ถึงเกณฑ์รีไทร์ — สิ้นสุดสถานภาพนิสิต</div>`;
+    const consecR = getConsecLow(semResults);
+    if (consecR >= 2) {
+      warnEl.innerHTML = `<div class="warn-box" style="margin-top:10px;">${warnSvg('red')}ติดโปรต่ำครบ 2 ภาคการศึกษาติดต่อกัน — สิ้นสุดสถานภาพนิสิต</div>${proCountBarHtml(2)}`;
+    } else {
+      warnEl.innerHTML = `<div class="warn-box" style="margin-top:10px;">${warnSvg('red')}GPAX ต่ำกว่า 1.50 — สิ้นสุดสถานภาพนิสิต</div>`;
+    }
   } else if (finalGPAX < 1.75) {
     card.classList.add('status-pro-low');
     gpaEl.className = 'status-gpa gpa-pro-low';
     badgeEl.innerHTML = '<span class="status-dot dot-pro-low"></span>โปรต่ำ (รอพินิจ)';
     badgeEl.className = 'status-badge badge-pro-low';
     const consec = getConsecLow(semResults);
-    let barHtml = '<div class="pro-count-bar">';
-    for (let i=0;i<2;i++) barHtml += '<div class="pro-dot ' + (i < consec ? 'filled' : 'empty') + '">' + (i < consec ? '✕' : (i+1)) + '</div>';
-    barHtml += '</div>';
-    warnEl.innerHTML = `<div class="warn-box warn-amber" style="margin-top:10px;">${warnSvg('amber')}GPAX อยู่ในโปรต่ำ (${gpaxStr}) — ถ้าติดต่อกันครบ 2 ภาคจะถูกรีไทร์</div>${barHtml}`;
+    const barHtml = proCountBarHtml(consec);
+    warnEl.innerHTML = `<div class="warn-box warn-amber" style="margin-top:10px;">${warnSvg('amber')}GPAX อยู่ในโปรต่ำ (${gpaxStr}) — ถ้าติดต่อกันครบ 2 ภาคจะถูกรีไทร์</div>${barHtml}${nextTermAdviceHtml(window._gpaxEntries, finalGPAX)}`;
   } else if (finalGPAX < 2.00) {
     card.classList.add('status-pro-high');
     gpaEl.className = 'status-gpa gpa-pro-high';
     badgeEl.innerHTML = '<span class="status-dot dot-pro-high"></span>โปรสูง';
     badgeEl.className = 'status-badge badge-pro-high';
-    warnEl.innerHTML = `<div class="warn-box warn-gold" style="margin-top:10px;">${warnSvg('gold')}GPAX อยู่ในโปรสูง (${gpaxStr}) — ยังไม่มีผลทันที ต้องมี GPAX &ge; 2.00 เพื่อสำเร็จการศึกษา(4 ปี)</div>`;
+    warnEl.innerHTML = `<div class="warn-box warn-gold" style="margin-top:10px;">${warnSvg('gold')}GPAX อยู่ในโปรสูง (${gpaxStr}) — ยังไม่มีผลทันที ต้องมี GPAX &ge; 2.00 เพื่อสำเร็จการศึกษา(4 ปี)</div>${nextTermAdviceHtml(window._gpaxEntries, finalGPAX)}`;
   } else {
     card.classList.add('status-ok');
     gpaEl.className = 'status-gpa';
@@ -1138,6 +1142,84 @@ function renderMainStatusCard(finalGPAX, retired, semResults) {
     badgeEl.className = 'status-badge badge-ok';
     warnEl.innerHTML = '';
   }
+}
+
+/* ── คำแนะนำเกรดเทอมถัดไป: ต้องกรอกหน่วยกิตเทอมหน้าจริง และมีหน่วยกิตครบทุกเทอมที่กรอกไว้ ── */
+window._nextCredits = window._nextCredits || '';
+
+function neededNextGPA(entries, target, nextCr) {
+  let pts = 0, W = 0;
+  entries.forEach(e => { pts += e.gpa * e.credits; W += e.credits; });
+  return (target * (W + nextCr) - pts) / nextCr;
+}
+
+function adviceResultHtml() {
+  const entries = window._gpaxEntries || [];
+  const finalGPAX = window._gpaxFinal;
+  const raw = window._nextCredits;
+  const BASE = 22, MAX = 25;
+  const msg = (t, warn) => `<div style="font-size:12px;line-height:1.6;${warn ? 'color:#B71C1C;' : 'opacity:.8;'}">${t}</div>`;
+
+  if (entries.some(e => !(e.credits > 0))) {
+    return msg('ต้องกรอกหน่วยกิตของ<b>ทุกเทอมที่กรอกเกรดไว้</b>ก่อน จึงจะแนะนำได้อย่างถูกต้อง');
+  }
+  if (raw === '' || raw === null) {
+    return msg('กรอกหน่วยกิตที่จะลงเรียนเทอมถัดไปเพื่อรับคำแนะนำ');
+  }
+  const nextCr = parseFloat(raw);
+  if (isNaN(nextCr) || nextCr <= 0) {
+    return msg('หน่วยกิตไม่ถูกต้อง กรุณากรอกตัวเลขที่มากกว่า 0', true);
+  }
+  if (nextCr > MAX) {
+    return msg(`ลงทะเบียนได้ไม่เกิน ${MAX} หน่วยกิต แม้จะเป็นเทอมสุดท้ายก็ตาม`, true);
+  }
+  if (nextCr > BASE && !window._nextLastTerm) {
+    return msg(`โดยปกติลงทะเบียนได้ไม่เกิน ${BASE} หน่วยกิต การขอลงเกิน ${BASE} หน่วยกิต (ไม่เกิน ${MAX}) ทำได้เฉพาะนิสิตที่ลงทะเบียนเรียนเทอมสุดท้ายและคาดว่าจะสำเร็จการศึกษา หากเข้าเงื่อนไขให้ติ๊กช่องด้านบน`, true);
+  }
+  const fmt = (v) => v.toFixed(2);
+  const line = (target, goal) => {
+    const need = neededNextGPA(entries, target, nextCr);
+    return need > 4.00
+      ? `แม้มีเกรดเฉลี่ย 4.00 ในเทอมถัดไป GPAX ยังคงไม่ถึง ${target.toFixed(2)}`
+      : `โปรดทำเกรดเทอมต่อไปให้ได้ <b>ไม่ต่ำกว่า ${fmt(Math.max(need, 0))}</b> ${goal}`;
+  };
+  let html = '';
+  if (finalGPAX < 1.75) html += line(1.75, 'เพื่อให้ GPAX พ้นโปรต่ำ (1.75 ขึ้นไป)') + '<br>';
+  html += line(2.00, 'เพื่อให้ GPAX กลับสู่สภาพปกติ (2.00–4.00)');
+  return `<div style="font-size:12.5px;line-height:1.7;">${html}</div>`
+       + `<div style="margin-top:4px;font-size:11.5px;opacity:.75;">* คำนวณจากหน่วยกิตเทอมถัดไป ${nextCr} หน่วยกิต</div>`;
+}
+
+function refreshAdvice() {
+  const el = document.getElementById('adviceResult');
+  if (el) el.innerHTML = adviceResultHtml();
+}
+
+function onNextCreditInput(v) {
+  window._nextCredits = v;
+  refreshAdvice();
+}
+
+function onNextLastTermChange(checked) {
+  window._nextLastTerm = checked;
+  refreshAdvice();
+}
+
+function nextTermAdviceHtml(entries, finalGPAX) {
+  window._gpaxFinal = finalGPAX;
+  return `<div id="adviceBox" style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(0,0,0,.15);">`
+    + `<div style="font-size:12.5px;margin-bottom:6px;"><b>คำแนะนำเกรดเทอมถัดไป</b> — กรอกหน่วยกิตที่จะเรียนเทอมถัดไปเพื่อให้คำแนะนำสมบูรณ์</div>`
+    + `<label style="display:flex;gap:6px;align-items:flex-start;font-size:12px;line-height:1.5;margin-bottom:8px;cursor:pointer;">`
+    + `<input type="checkbox" ${window._nextLastTerm ? 'checked' : ''} onchange="onNextLastTermChange(this.checked)" style="margin-top:3px;">`
+    + `<span>ฉันลงทะเบียนเรียนเทอมสุดท้าย และคาดว่าจะสำเร็จการศึกษาเทอมถัดไป</span></label>`
+    + `<input type="number" inputmode="decimal" min="1" max="25" step="1" placeholder="หน่วยกิตเทอมถัดไป" value="${window._nextCredits}" oninput="onNextCreditInput(this.value)" style="width:170px;padding:6px 10px;border:1px solid #bbb;border-radius:8px;font-size:13px;margin-bottom:8px;">`
+    + `<div id="adviceResult">${adviceResultHtml()}</div></div>`;
+}
+
+function proCountBarHtml(consec) {
+  let h = '<div class="pro-count-bar">';
+  for (let i=0;i<2;i++) h += '<div class="pro-dot ' + (i < consec ? 'filled' : 'empty') + '">' + (i < consec ? '✕' : (i+1)) + '</div>';
+  return h + '</div>';
 }
 
 function warnSvg(color) {
@@ -1148,7 +1230,9 @@ function warnSvg(color) {
 function getConsecLow(semResults) {
   let consec = 0;
   for (let i = semResults.length - 1; i >= 1; i--) {
-    if (semResults[i].statusType === 'pro-low') consec++;
+    const t = semResults[i].statusType;
+    if (t === 'empty') continue;
+    if (t === 'pro-low') consec++;
     else break;
   }
   return consec;
